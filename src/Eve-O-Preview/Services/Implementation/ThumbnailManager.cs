@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Threading;
@@ -85,7 +86,7 @@ namespace EveOPreview.Services
 
 		public IThumbnailView GetClientByTitle(string title)
 		{
-			return _thumbnailViews.FirstOrDefault(x => x.Value.Title == title).Value;
+			return _thumbnailViews.FirstOrDefault(x => new Regex(title).IsMatch(x.Value.Title)).Value;
 		}
 
 		public IThumbnailView GetClientByPointer(IntPtr ptr)
@@ -126,10 +127,12 @@ namespace EveOPreview.Services
 
 			foreach (var t in clientOrder)
 			{
-				if (t.Key == _activeClient.Title)
+				var regex = new Regex(t.Key);
+
+				if (regex.IsMatch(_activeClient.Title))
 				{
 					setNextClient = true;
-					lastClient = _thumbnailViews.FirstOrDefault(x => x.Value.Title == t.Key).Value;
+					lastClient = _thumbnailViews.FirstOrDefault(x => new Regex(t.Key).IsMatch(x.Value.Title)).Value;
 					continue;
 				}
 
@@ -138,9 +141,9 @@ namespace EveOPreview.Services
 					continue;
 				}
 
-				if (_thumbnailViews.Any(x => x.Value.Title == t.Key))
+                if (_thumbnailViews.Any(x => regex.IsMatch(x.Value.Title)))
 				{
-					var ptr = _thumbnailViews.First(x => x.Value.Title == t.Key);
+					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
 					SetActive(ptr);
 					return;
 				}
@@ -149,9 +152,10 @@ namespace EveOPreview.Services
 			// we didn't get a next one. just get the first one from the start.
 			foreach (var t in clientOrder)
 			{
-				if (_thumbnailViews.Any(x => x.Value.Title == t.Key))
+				var regex = new Regex(t.Key);
+				if (_thumbnailViews.Any(x => regex.IsMatch(x.Value.Title)))
 				{
-					var ptr = _thumbnailViews.First(x => x.Value.Title == t.Key);
+					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
 					SetActive(ptr);
 					_activeClient = (ptr.Key, t.Key);
 					return;
