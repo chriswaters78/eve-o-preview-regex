@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -43,6 +44,7 @@ namespace EveOPreview.Configuration.Implementation
 
 			this.PerClientLayout = new Dictionary<string, Dictionary<string, Point>>();
 			this.FlatLayout = new Dictionary<string, Point>();
+			this.ClientPosition = new Dictionary<string, Point>();
 			this.ClientLayout = new Dictionary<string, ClientLayout>();
 			this.ClientHotkey = new Dictionary<string, string>();
 			this.DisableThumbnail = new Dictionary<string, bool>();
@@ -93,11 +95,11 @@ namespace EveOPreview.Configuration.Implementation
 
 		[JsonProperty("CycleGroup1BackwardHotkeys")]
 		public List<string> CycleGroup1BackwardHotkeys { get; set; }
-
+        
 		[JsonProperty("CycleGroup1ClientsOrder")]
-		public Dictionary<string, int> CycleGroup1ClientsOrder { get; set; }
+        public Dictionary<string, int> CycleGroup1ClientsOrder { get; set; }
 
-		[JsonProperty("CycleGroup2ForwardHotkeys")]
+        [JsonProperty("CycleGroup2ForwardHotkeys")]
 		public List<string> CycleGroup2ForwardHotkeys { get; set; }
 
 		[JsonProperty("CycleGroup2BackwardHotkeys")]
@@ -178,7 +180,11 @@ namespace EveOPreview.Configuration.Implementation
 
 		[JsonProperty]
 		private Dictionary<string, Dictionary<string, Point>> PerClientLayout { get; set; }
-		[JsonProperty]
+
+        [JsonProperty]
+        public Dictionary<string, Point> ClientPosition { get; set; }
+
+        [JsonProperty]
 		private Dictionary<string, Point> FlatLayout { get; set; }
 		[JsonProperty]
 		private Dictionary<string, ClientLayout> ClientLayout { get; set; }

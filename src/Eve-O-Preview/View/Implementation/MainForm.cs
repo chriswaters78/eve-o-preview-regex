@@ -391,5 +391,10 @@ namespace EveOPreview.View
 			this._zoomAnchorMap[ViewZoomAnchor.S] = this.ZoomAanchorSRadioButton;
 			this._zoomAnchorMap[ViewZoomAnchor.SE] = this.ZoomAanchorSERadioButton;
 		}
-	}
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
 }

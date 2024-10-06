@@ -77,11 +77,11 @@ namespace EveOPreview.Services
 
 			this._hideThumbnailsDelay = this._configuration.HideThumbnailsDelay;
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup1ClientsOrder);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup1ClientsOrder);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup1ClientsOrder, this._configuration.ClientPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup1ClientsOrder, this._configuration.ClientPosition);
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup2ClientsOrder);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup2ClientsOrder);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup2ClientsOrder, this._configuration.ClientPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup2ClientsOrder, this._configuration.ClientPosition);
 		}
 
 		public IThumbnailView GetClientByTitle(string title)
@@ -110,7 +110,7 @@ namespace EveOPreview.Services
 			newClient.Value.Refresh(true);
 		}
 
-		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder)
+		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, Point> clientPosition)
 		{
 			IOrderedEnumerable<KeyValuePair<string, int>> clientOrder;
 			if (isForwards)
@@ -122,14 +122,32 @@ namespace EveOPreview.Services
 				clientOrder = cycleOrder.OrderByDescending(x => x.Value);
 			}
 
+
 			bool setNextClient = false;
 			IThumbnailView lastClient = null;
 
+
+            Action<Regex,IntPtr> setWindowPosition = (Regex regex, IntPtr ptr) =>
+            {
+                if (clientPosition.Any(x => regex.IsMatch(x.Key)))
+                {
+                    var position = clientPosition.First(x => regex.IsMatch(x.Key));
+                    (int left, int top, int right, int bottom) = this._windowManager.GetWindowPosition(ptr);
+                    int width = right - left;
+					int height = 962;//bottom - top;
+                    if (position.Value.X != left || position.Value.Y != top)
+                    {
+                        this._windowManager.MoveWindow(ptr, position.Value.X, position.Value.Y, width, height);
+                    }
+                }
+            };
+            
 			foreach (var t in clientOrder)
 			{
 				var regex = new Regex(t.Key);
 
-				if (regex.IsMatch(_activeClient.Title))
+
+                if (regex.IsMatch(_activeClient.Title))
 				{
 					setNextClient = true;
 					lastClient = _thumbnailViews.FirstOrDefault(x => new Regex(t.Key).IsMatch(x.Value.Title)).Value;
@@ -145,7 +163,9 @@ namespace EveOPreview.Services
 				{
 					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
 					SetActive(ptr);
-					return;
+
+					setWindowPosition(regex,ptr.Key);
+                    return;
 				}
 			}
 
@@ -158,12 +178,14 @@ namespace EveOPreview.Services
 					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
 					SetActive(ptr);
 					_activeClient = (ptr.Key, t.Key);
-					return;
+
+                    setWindowPosition(regex, ptr.Key);
+                    return;
 				}
 			}
 		}
 
-		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder)
+		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, Point> positions)
 		{
 			foreach (var hotkey in keys)
 			{
@@ -175,7 +197,7 @@ namespace EveOPreview.Services
 				var newHandler = new HotkeyHandler(default(IntPtr), hotkey);
 				newHandler.Pressed += (object s, HandledEventArgs e) =>
 				{
-					this.CycleNextClient(isForwards, cycleOrder);
+					this.CycleNextClient(isForwards, cycleOrder, positions);
 					e.Handled = true;
 				};
 
