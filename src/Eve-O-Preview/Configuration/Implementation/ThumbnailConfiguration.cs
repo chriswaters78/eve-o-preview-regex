@@ -44,7 +44,7 @@ namespace EveOPreview.Configuration.Implementation
 
 			this.PerClientLayout = new Dictionary<string, Dictionary<string, Point>>();
 			this.FlatLayout = new Dictionary<string, Point>();
-			this.ClientPosition = new Dictionary<string, Point>();
+			this.ClientPosition = new Dictionary<string, List<int>>();
 			this.ClientLayout = new Dictionary<string, ClientLayout>();
 			this.ClientHotkey = new Dictionary<string, string>();
 			this.DisableThumbnail = new Dictionary<string, bool>();
@@ -182,7 +182,7 @@ namespace EveOPreview.Configuration.Implementation
 		private Dictionary<string, Dictionary<string, Point>> PerClientLayout { get; set; }
 
         [JsonProperty]
-        public Dictionary<string, Point> ClientPosition { get; set; }
+        public Dictionary<string, List<int>> ClientPosition { get; set; }
 
         [JsonProperty]
 		private Dictionary<string, Point> FlatLayout { get; set; }

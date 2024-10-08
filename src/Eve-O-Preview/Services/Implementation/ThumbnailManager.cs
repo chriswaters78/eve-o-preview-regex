@@ -110,7 +110,7 @@ namespace EveOPreview.Services
 			newClient.Value.Refresh(true);
 		}
 
-		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, Point> clientPosition)
+		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> clientPosition)
 		{
 			IOrderedEnumerable<KeyValuePair<string, int>> clientOrder;
 			if (isForwards)
@@ -133,11 +133,10 @@ namespace EveOPreview.Services
                 {
                     var position = clientPosition.First(x => regex.IsMatch(x.Key));
                     (int left, int top, int right, int bottom) = this._windowManager.GetWindowPosition(ptr);
-                    int width = right - left;
-					int height = 962;//bottom - top;
-                    if (position.Value.X != left || position.Value.Y != top)
+                    if (position.Value[0] != left || position.Value[1] != top)
                     {
-                        this._windowManager.MoveWindow(ptr, position.Value.X, position.Value.Y, width, height);
+						Console.WriteLine($"Window {position.Key} (x:{position.Value[0]},y:{position.Value[1]},width:{position.Value[2]},height:{position.Value[3]}");
+						this._windowManager.MoveWindow(ptr, position.Value[0], position.Value[1], position.Value[2], position.Value[3]);
                     }
                 }
             };
@@ -185,7 +184,7 @@ namespace EveOPreview.Services
 			}
 		}
 
-		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, Point> positions)
+		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> positions)
 		{
 			foreach (var hotkey in keys)
 			{
