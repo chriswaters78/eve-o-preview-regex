@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Threading;
@@ -37,6 +38,7 @@ namespace EveOPreview.Services
 		private readonly Dictionary<IntPtr, IThumbnailView> _thumbnailViews;
 
 		private (IntPtr Handle, string Title) _activeClient;
+		private Dictionary<int, IThumbnailView> _orderCache = new Dictionary<int, IThumbnailView>();
 		private IntPtr _externalApplication;
 
 		private readonly object _locationChangeNotificationSyncRoot;
@@ -112,20 +114,21 @@ namespace EveOPreview.Services
 
 		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> clientPosition)
 		{
-			IOrderedEnumerable<KeyValuePair<string, int>> clientOrder;
-			if (isForwards)
+			//find the current order
+			var currentOrders = cycleOrder.Where(co => new Regex(co.Key).IsMatch(_activeClient.Title));
+			var currentOrder = currentOrders.Any() ? currentOrders.First() : cycleOrder.First();
+			var allLoadedOrders = cycleOrder.Where(co => _thumbnailViews.Any(kvp => new Regex(co.Key).IsMatch(kvp.Value.Title))).ToList();
+			var nextOrders = allLoadedOrders.OrderBy(co => isForwards ? co.Value : -co.Value).SkipWhile(co => co.Value != currentOrder.Value).ToList();
+			KeyValuePair<string,int> nextOrder;
+			if (nextOrders.Count > 1)
 			{
-				clientOrder = cycleOrder.OrderBy(x => x.Value);
+				nextOrder = nextOrders.Skip(1).First();
 			}
 			else
 			{
-				clientOrder = cycleOrder.OrderByDescending(x => x.Value);
+				//go to the first / last
+				nextOrder = isForwards ? allLoadedOrders.First() : allLoadedOrders.Last();
 			}
-
-
-			bool setNextClient = false;
-			IThumbnailView lastClient = null;
-
 
             Action<Regex,IntPtr> setWindowPosition = (Regex regex, IntPtr ptr) =>
             {
@@ -141,47 +144,33 @@ namespace EveOPreview.Services
                 }
             };
             
-			foreach (var t in clientOrder)
+			//we know which we are going to next
+			bool wrapAroundStack = nextOrder.Value < currentOrder.Value && isForwards || nextOrder.Value > currentOrder.Value && !isForwards;
+			List<int> stackOrder = new List<int>();
+			if (wrapAroundStack)
 			{
-				var regex = new Regex(t.Key);
-
-
-                if (regex.IsMatch(_activeClient.Title))
+				var loadedToStack = allLoadedOrders.Where(co => co.Value != nextOrder.Value).ToList();
+				if (isForwards)
 				{
-					setNextClient = true;
-					lastClient = _thumbnailViews.FirstOrDefault(x => new Regex(t.Key).IsMatch(x.Value.Title)).Value;
-					continue;
+                    loadedToStack.Reverse();
 				}
-
-				if (!setNextClient)
+				foreach (var co in loadedToStack)
 				{
-					continue;
-				}
-
-                if (_thumbnailViews.Any(x => regex.IsMatch(x.Value.Title)))
-				{
-					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
-					SetActive(ptr);
-
-					setWindowPosition(regex,ptr.Key);
-                    return;
-				}
-			}
-
-			// we didn't get a next one. just get the first one from the start.
-			foreach (var t in clientOrder)
-			{
-				var regex = new Regex(t.Key);
-				if (_thumbnailViews.Any(x => regex.IsMatch(x.Value.Title)))
-				{
-					var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
-					SetActive(ptr);
-					_activeClient = (ptr.Key, t.Key);
-
+					var regex = new Regex(co.Key);
+                    var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
+                    SetActive(ptr);
                     setWindowPosition(regex, ptr.Key);
-                    return;
-				}
-			}
+					Thread.Sleep(25);
+                }
+            }
+
+			var nextRegex = new Regex(nextOrder.Key);
+			var nextView = _thumbnailViews.Where(kvp => nextRegex.IsMatch(kvp.Value.Title));
+			if (nextView.Any())
+			{
+                SetActive(nextView.First());
+                setWindowPosition(nextRegex, nextView.First().Key);
+            }
 		}
 
 		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> positions)

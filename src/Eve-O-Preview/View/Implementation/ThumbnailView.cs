@@ -82,6 +82,7 @@ namespace EveOPreview.View
 
 		public IntPtr Id { get; set; }
 
+		public int Order { get; set; } = 0;
 		public string Title
 		{
 			get => this.Text;
