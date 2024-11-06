@@ -9,7 +9,7 @@ namespace EveOPreview.Configuration
 	{
 		List<string> CycleGroup1ForwardHotkeys { get; set; }
 		List<string> CycleGroup1BackwardHotkeys { get; set; }
-        Dictionary<string, List<int>> ClientPosition { get; set; }
+        Dictionary<int, List<int>> OrderPosition { get; set; }
         Dictionary<string, int> CycleGroup1ClientsOrder { get; set; }
 
         List<string> CycleGroup2ForwardHotkeys { get; set; }

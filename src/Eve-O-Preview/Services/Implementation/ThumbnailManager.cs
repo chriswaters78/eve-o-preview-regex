@@ -78,11 +78,11 @@ namespace EveOPreview.Services
 
 			this._hideThumbnailsDelay = this._configuration.HideThumbnailsDelay;
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup1ClientsOrder, this._configuration.ClientPosition);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup1ClientsOrder, this._configuration.ClientPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup1ClientsOrder, this._configuration.OrderPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup1ClientsOrder, this._configuration.OrderPosition);
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup2ClientsOrder, this._configuration.ClientPosition);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup2ClientsOrder, this._configuration.ClientPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup2ClientsOrder, this._configuration.OrderPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup2ClientsOrder, this._configuration.OrderPosition);
 		}
 
 		public IThumbnailView GetClientByTitle(string title)
@@ -100,25 +100,33 @@ namespace EveOPreview.Services
 			return GetClientByPointer(this._activeClient.Handle);
 		}
 
-		public void SetActive(KeyValuePair<IntPtr, IThumbnailView> newClient)
+        public void SetActive(KeyValuePair<IntPtr, IThumbnailView> newClient)
 		{
-			this.GetActiveClient()?.ClearBorder();
-
-			this._windowManager.ActivateWindow(newClient.Key);
-			this.SwitchActiveClient(newClient.Key, newClient.Value.Title);
-
-			newClient.Value.SetHighlight();
-			newClient.Value.Refresh(true);
+			SetActive(newClient.Key, newClient.Value);
 		}
+        public void SetActive(IntPtr handle, IThumbnailView view)
+        {
+            this.GetActiveClient()?.ClearBorder();
 
-		public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> clientPosition)
+            this._windowManager.ActivateWindow(handle);
+            this.SwitchActiveClient(handle, view.Title);
+
+            view.SetHighlight();
+            view.Refresh(true);
+        }
+        public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<int, List<int>> clientPosition)
 		{
 			//find the current order
-			var currentOrders = cycleOrder.Where(co => new Regex(co.Key).IsMatch(_activeClient.Title));
-			var currentOrder = currentOrders.Any() ? currentOrders.First() : cycleOrder.First();
-			var allLoadedOrders = cycleOrder.Where(co => _thumbnailViews.Any(kvp => new Regex(co.Key).IsMatch(kvp.Value.Title))).ToList();
-			var nextOrders = allLoadedOrders.OrderBy(co => isForwards ? co.Value : -co.Value).SkipWhile(co => co.Value != currentOrder.Value).ToList();
-			KeyValuePair<string,int> nextOrder;
+			var currentOrder = this._processMonitor.GetProcessOrder(_activeClient.Handle);
+			if (!currentOrder.HasValue) 
+			{ 
+				return; 
+			}
+
+			var processOrders = this._processMonitor.GetKnownProcessOrders(!isForwards);
+            var nextOrders = processOrders.SkipWhile(order => order.Item1 != currentOrder).ToList();
+
+			(int, IntPtr) nextOrder;
 			if (nextOrders.Count > 1)
 			{
 				nextOrder = nextOrders.Skip(1).First();
@@ -126,54 +134,41 @@ namespace EveOPreview.Services
 			else
 			{
 				//go to the first / last
-				nextOrder = isForwards ? allLoadedOrders.First() : allLoadedOrders.Last();
+				nextOrder = processOrders.First();
 			}
 
-            Action<Regex,IntPtr> setWindowPosition = (Regex regex, IntPtr ptr) =>
-            {
-                if (clientPosition.Any(x => regex.IsMatch(x.Key)))
-                {
-                    var position = clientPosition.First(x => regex.IsMatch(x.Key));
-                    (int left, int top, int right, int bottom) = this._windowManager.GetWindowPosition(ptr);
-                    if (position.Value[0] != left || position.Value[1] != top)
-                    {
-						Console.WriteLine($"Window {position.Key} (x:{position.Value[0]},y:{position.Value[1]},width:{position.Value[2]},height:{position.Value[3]}");
-						this._windowManager.MoveWindow(ptr, position.Value[0], position.Value[1], position.Value[2], position.Value[3]);
-                    }
-                }
-            };
+			Action<int, IntPtr> setWindowPosition = (int order, IntPtr ptr) =>
+			{
+				var position = clientPosition[order];
+				(int left, int top, int right, int bottom) = this._windowManager.GetWindowPosition(ptr);
+				if (position[0] != left || position[1] != top)
+				{
+					Console.WriteLine($"Window order:{order} (x:{position[0]},y:{position[1]},width:{position[2]},height:{position[3]}");
+					this._windowManager.MoveWindow(ptr, position[0], position[1], position[2], position[3]);
+				}
+			};
             
 			//we know which we are going to next
-			bool wrapAroundStack = nextOrder.Value < currentOrder.Value && isForwards || nextOrder.Value > currentOrder.Value && !isForwards;
+			bool wrapAroundStack = nextOrder.Item1 < currentOrder.Value && isForwards || nextOrder.Item1 > currentOrder.Value && !isForwards;
 			List<int> stackOrder = new List<int>();
 			if (wrapAroundStack)
 			{
-				var loadedToStack = allLoadedOrders.Where(co => co.Value != nextOrder.Value).ToList();
-				if (isForwards)
-				{
-                    loadedToStack.Reverse();
-				}
+				var loadedToStack = processOrders.Where(co => co.Item1 != nextOrder.Item1).ToList();
+                loadedToStack.Reverse();
 				foreach (var co in loadedToStack)
 				{
-					var regex = new Regex(co.Key);
-                    var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
-                    SetActive(ptr);
-                    setWindowPosition(regex, ptr.Key);
+                    SetActive(co.Item2, _thumbnailViews[co.Item2]);
+                    setWindowPosition(co.Item1, co.Item2);
 					//if we go too fast we skip making some of them active
 					Thread.Sleep(30);
                 }
             }
 
-			var nextRegex = new Regex(nextOrder.Key);
-			var nextView = _thumbnailViews.Where(kvp => nextRegex.IsMatch(kvp.Value.Title));
-			if (nextView.Any())
-			{
-                SetActive(nextView.First());
-                setWindowPosition(nextRegex, nextView.First().Key);
-            }
+            SetActive(nextOrder.Item2, _thumbnailViews[nextOrder.Item2]);
+            setWindowPosition(nextOrder.Item1, nextOrder.Item2);
 		}
 
-		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<string, List<int>> positions)
+		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<int, List<int>> positions)
 		{
 			foreach (var hotkey in keys)
 			{

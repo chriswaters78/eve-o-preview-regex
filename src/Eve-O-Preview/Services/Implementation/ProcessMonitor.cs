@@ -59,7 +59,23 @@ namespace EveOPreview.Services.Implementation
 			return this._currentProcessInfo;
 		}
 
-		public ICollection<IProcessInfo> GetAllProcesses()
+		public int? GetProcessOrder(IntPtr processHandle)
+		{
+			if (_processCache.ContainsKey(processHandle))
+			{
+				return _processCache[processHandle].Item1;
+			}
+			return null;
+		}
+
+        public List<(int,IntPtr)> GetKnownProcessOrders(bool reverse)
+        {
+			return _processCache.Where(kvp => kvp.Value.Item1 != null).Select(kvp => (kvp.Value.Item1.Value, kvp.Key))
+				.OrderBy(tp => (reverse ? -1 : 1) * tp.Value)
+				.ToList();
+        }
+
+        public ICollection<IProcessInfo> GetAllProcesses()
 		{
 			ICollection<IProcessInfo> result = new List<IProcessInfo>(this._processCache.Count);
 
