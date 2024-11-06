@@ -1,6 +1,9 @@
-﻿using System;
+﻿using EveOPreview.Configuration;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace EveOPreview.Services.Implementation
 {
@@ -9,20 +12,23 @@ namespace EveOPreview.Services.Implementation
 		#region Private constants
 		private const string DEFAULT_PROCESS_NAME = "ExeFile";
 		private const string CURRENT_PROCESS_NAME = "EVE-O Preview";
-		#endregion
+        #endregion
 
-		#region Private fields
-		private readonly IDictionary<IntPtr, string> _processCache;
-		private IProcessInfo _currentProcessInfo;
-		#endregion
+        #region Private fields
+        private readonly IDictionary<IntPtr, (int?, string)> _processCache;
+        private IProcessInfo _currentProcessInfo;
+        private readonly IThumbnailConfiguration _configuration;
 
-		public ProcessMonitor()
+        #endregion
+
+        public ProcessMonitor(IThumbnailConfiguration configuration)
 		{
-			this._processCache = new Dictionary<IntPtr, string>(512);
-			
-			// This field cannot be initialized properly in constructor
-			// At the moment this code is executed the main application window is not yet initialized
-			this._currentProcessInfo = new ProcessInfo(IntPtr.Zero, "");
+			this._processCache = new Dictionary<IntPtr, (int?, string)>(512);
+            this._configuration = configuration;
+
+            // This field cannot be initialized properly in constructor
+            // At the moment this code is executed the main application window is not yet initialized
+            this._currentProcessInfo = new ProcessInfo(IntPtr.Zero, "");
 		}
 
 		private bool IsMonitoredProcess(string processName)
@@ -58,15 +64,32 @@ namespace EveOPreview.Services.Implementation
 			ICollection<IProcessInfo> result = new List<IProcessInfo>(this._processCache.Count);
 
 			// TODO Lock list here just in case
-			foreach (KeyValuePair<IntPtr, string> entry in this._processCache)
+			foreach (KeyValuePair<IntPtr, (int?, string)> entry in this._processCache)
 			{
-				result.Add(new ProcessInfo(entry.Key, entry.Value));
+				result.Add(new ProcessInfo(entry.Key, entry.Value.Item2));
 			}
 
 			return result;
 		}
 
-		public void GetUpdatedProcesses(out ICollection<IProcessInfo> addedProcesses, out ICollection<IProcessInfo> updatedProcesses, out ICollection<IProcessInfo> removedProcesses)
+        private int? getMatchingCycleOrder(string windowTitle)
+        {
+            var matchingOrders = _configuration.CycleGroup1ClientsOrder.Where(co => new Regex(co.Key).IsMatch(windowTitle))
+                .Select(co => co.Value).Distinct().ToArray();
+            if (matchingOrders.Length > 1)
+            {
+                throw new Exception($"Found more than one matching order for window '{windowTitle}'");
+            }
+
+            if (matchingOrders.Length > 0)
+            {
+                return matchingOrders[0];
+            }
+            return null;
+        }
+
+
+        public void GetUpdatedProcesses(out ICollection<IProcessInfo> addedProcesses, out ICollection<IProcessInfo> updatedProcesses, out ICollection<IProcessInfo> removedProcesses)
 		{
 			addedProcesses = new List<IProcessInfo>(16);
 			updatedProcesses = new List<IProcessInfo>(16);
@@ -89,21 +112,31 @@ namespace EveOPreview.Services.Implementation
 				}
 
 				string mainWindowTitle = process.MainWindowTitle;
-				this._processCache.TryGetValue(mainWindowHandle, out string cachedTitle);
 
-				if (cachedTitle == null)
+
+                this._processCache.TryGetValue(mainWindowHandle, out (int? order, string title) cachedProcess);
+
+				if (cachedProcess.title == null)
 				{
-					// This is a new process in the list
-					this._processCache.Add(mainWindowHandle, mainWindowTitle);
-					addedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
+                    this._processCache.Add(mainWindowHandle, (getMatchingCycleOrder(mainWindowTitle), mainWindowTitle));
+                    // This is a new process in the list
+                    // see if we can assign it an order
+                    addedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
 				}
 				else
 				{
 					// This is an already known process
-					if (cachedTitle != mainWindowTitle)
+					if (cachedProcess.title != mainWindowTitle)
 					{
-						this._processCache[mainWindowHandle] = mainWindowTitle;
-						updatedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
+						if (cachedProcess.order == null)
+						{
+							this._processCache[mainWindowHandle] = (getMatchingCycleOrder(mainWindowTitle), mainWindowTitle);
+						}
+						else
+						{
+                            this._processCache[mainWindowHandle] = (cachedProcess.order, mainWindowTitle);
+                        }
+                        updatedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
 					}
 
 					knownProcesses.Remove(mainWindowHandle);
@@ -112,7 +145,7 @@ namespace EveOPreview.Services.Implementation
 
 			foreach (IntPtr index in knownProcesses)
 			{
-				string title = this._processCache[index];
+				(int? order, string title) = this._processCache[index];
 				removedProcesses.Add(new ProcessInfo(index, title));
 				this._processCache.Remove(index);
 			}

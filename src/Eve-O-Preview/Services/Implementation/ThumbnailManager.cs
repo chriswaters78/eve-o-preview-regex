@@ -38,7 +38,6 @@ namespace EveOPreview.Services
 		private readonly Dictionary<IntPtr, IThumbnailView> _thumbnailViews;
 
 		private (IntPtr Handle, string Title) _activeClient;
-		private Dictionary<int, IThumbnailView> _orderCache = new Dictionary<int, IThumbnailView>();
 		private IntPtr _externalApplication;
 
 		private readonly object _locationChangeNotificationSyncRoot;
@@ -160,7 +159,8 @@ namespace EveOPreview.Services
                     var ptr = _thumbnailViews.First(x => regex.IsMatch(x.Value.Title));
                     SetActive(ptr);
                     setWindowPosition(regex, ptr.Key);
-					Thread.Sleep(25);
+					//if we go too fast we skip making some of them active
+					Thread.Sleep(30);
                 }
             }
 
