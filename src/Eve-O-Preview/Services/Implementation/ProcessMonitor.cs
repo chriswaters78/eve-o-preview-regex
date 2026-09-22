@@ -12,10 +12,15 @@ namespace EveOPreview.Services.Implementation
 		#region Private constants
 		private const string DEFAULT_PROCESS_NAME = "ExeFile";
 		private const string CURRENT_PROCESS_NAME = "EVE-O Preview";
+
+		// Cycle groups are numbered starting from 1 both in the config file and in the public API
+		private const int CYCLE_GROUP_COUNT = 2;
         #endregion
 
         #region Private fields
-        private readonly IDictionary<IntPtr, (int?, string)> _processCache;
+        // The place a client takes in every cycle group is resolved once and then cached here
+        // The regex lookups it requires are far too expensive to be repeated on every hotkey press
+        private readonly IDictionary<IntPtr, (int?[] Orders, string Title)> _processCache;
         private IProcessInfo _currentProcessInfo;
         private readonly IThumbnailConfiguration _configuration;
 
@@ -23,7 +28,7 @@ namespace EveOPreview.Services.Implementation
 
         public ProcessMonitor(IThumbnailConfiguration configuration)
 		{
-			this._processCache = new Dictionary<IntPtr, (int?, string)>(512);
+			this._processCache = new Dictionary<IntPtr, (int?[], string)>(512);
             this._configuration = configuration;
 
             // This field cannot be initialized properly in constructor
@@ -59,42 +64,102 @@ namespace EveOPreview.Services.Implementation
 			return this._currentProcessInfo;
 		}
 
-		public int? GetProcessOrder(IntPtr processHandle)
+		public int? GetProcessOrder(IntPtr processHandle, int cycleGroup)
 		{
-			if (_processCache.ContainsKey(processHandle))
+			if (!ProcessMonitor.IsKnownCycleGroup(cycleGroup))
 			{
-				return _processCache[processHandle].Item1;
+				return null;
 			}
+
+			if (this._processCache.TryGetValue(processHandle, out (int?[] Orders, string Title) cachedProcess))
+			{
+				return cachedProcess.Orders[cycleGroup - 1];
+			}
+
 			return null;
 		}
 
-        public List<(int,IntPtr)> GetKnownProcessOrders(bool reverse)
-        {
-			return _processCache.Where(kvp => kvp.Value.Item1 != null).Select(kvp => (kvp.Value.Item1.Value, kvp.Key))
-				.OrderBy(tp => (reverse ? -1 : 1) * tp.Value)
+		public List<(int Order, IntPtr Handle)> GetKnownProcessOrders(int cycleGroup, bool reverse)
+		{
+			if (!ProcessMonitor.IsKnownCycleGroup(cycleGroup))
+			{
+				return new List<(int, IntPtr)>();
+			}
+
+			int groupIndex = cycleGroup - 1;
+
+			return this._processCache.Where(kvp => kvp.Value.Orders[groupIndex] != null)
+				.Select(kvp => (Order: kvp.Value.Orders[groupIndex].Value, Handle: kvp.Key))
+				.OrderBy(process => (reverse ? -1 : 1) * process.Order)
 				.ToList();
-        }
+		}
 
         public ICollection<IProcessInfo> GetAllProcesses()
 		{
 			ICollection<IProcessInfo> result = new List<IProcessInfo>(this._processCache.Count);
 
 			// TODO Lock list here just in case
-			foreach (KeyValuePair<IntPtr, (int?, string)> entry in this._processCache)
+			foreach (KeyValuePair<IntPtr, (int?[] Orders, string Title)> entry in this._processCache)
 			{
-				result.Add(new ProcessInfo(entry.Key, entry.Value.Item2));
+				result.Add(new ProcessInfo(entry.Key, entry.Value.Title));
 			}
 
 			return result;
 		}
 
-        private int? getMatchingCycleOrder(string windowTitle)
+        private static bool IsKnownCycleGroup(int cycleGroup)
         {
-            var matchingOrders = _configuration.CycleGroup1ClientsOrder.Where(co => new Regex(co.Key).IsMatch(windowTitle))
+            return (cycleGroup >= 1) && (cycleGroup <= ProcessMonitor.CYCLE_GROUP_COUNT);
+        }
+
+        private Dictionary<string, int> GetCycleGroupClientsOrder(int cycleGroup)
+        {
+            switch (cycleGroup)
+            {
+                case 1:
+                    return this._configuration.CycleGroup1ClientsOrder;
+                case 2:
+                    return this._configuration.CycleGroup2ClientsOrder;
+                default:
+                    return null;
+            }
+        }
+
+        // Resolves the place this client takes in each of the cycle groups
+        private int?[] getMatchingCycleOrders(string windowTitle)
+        {
+            return this.updateMatchingCycleOrders(new int?[ProcessMonitor.CYCLE_GROUP_COUNT], windowTitle);
+        }
+
+        // A client keeps the place it was given when it was first matched into a cycle group
+        // so only the groups it does not belong to yet are looked up again
+        private int?[] updateMatchingCycleOrders(int?[] orders, string windowTitle)
+        {
+            for (int groupIndex = 0; groupIndex < orders.Length; groupIndex++)
+            {
+                if (orders[groupIndex] == null)
+                {
+                    orders[groupIndex] = this.getMatchingCycleOrder(groupIndex + 1, windowTitle);
+                }
+            }
+
+            return orders;
+        }
+
+        private int? getMatchingCycleOrder(int cycleGroup, string windowTitle)
+        {
+            Dictionary<string, int> clientsOrder = this.GetCycleGroupClientsOrder(cycleGroup);
+
+            if (clientsOrder == null)
+            {
+                return null;
+            }
+
+            var matchingOrders = clientsOrder.Where(co => new Regex(co.Key).IsMatch(windowTitle))
                 .Select(co => co.Value).Distinct().ToArray();
             if (matchingOrders.Length > 1)
             {
-                throw new Exception($"Found more than one matching order for window '{windowTitle}'");
+                throw new Exception($"Found more than one matching order in cycle group {cycleGroup} for window '{windowTitle}'");
             }
 
             if (matchingOrders.Length > 0)
@@ -130,11 +195,11 @@ namespace EveOPreview.Services.Implementation
 				string mainWindowTitle = process.MainWindowTitle;
 
 
-                this._processCache.TryGetValue(mainWindowHandle, out (int? order, string title) cachedProcess);
+                this._processCache.TryGetValue(mainWindowHandle, out (int?[] orders, string title) cachedProcess);
 
 				if (cachedProcess.title == null)
 				{
-                    this._processCache.Add(mainWindowHandle, (getMatchingCycleOrder(mainWindowTitle), mainWindowTitle));
+                    this._processCache.Add(mainWindowHandle, (this.getMatchingCycleOrders(mainWindowTitle), mainWindowTitle));
                     // This is a new process in the list
                     // see if we can assign it an order
                     addedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
@@ -144,14 +209,9 @@ namespace EveOPreview.Services.Implementation
 					// This is an already known process
 					if (cachedProcess.title != mainWindowTitle)
 					{
-						if (cachedProcess.order == null)
-						{
-							this._processCache[mainWindowHandle] = (getMatchingCycleOrder(mainWindowTitle), mainWindowTitle);
-						}
-						else
-						{
-                            this._processCache[mainWindowHandle] = (cachedProcess.order, mainWindowTitle);
-                        }
+						// The client was most probably sitting on the login screen when it was last seen
+						// so the cycle groups it is still missing from are matched against its new title
+						this._processCache[mainWindowHandle] = (this.updateMatchingCycleOrders(cachedProcess.orders, mainWindowTitle), mainWindowTitle);
                         updatedProcesses.Add(new ProcessInfo(mainWindowHandle, mainWindowTitle));
 					}
 
@@ -161,7 +221,7 @@ namespace EveOPreview.Services.Implementation
 
 			foreach (IntPtr index in knownProcesses)
 			{
-				(int? order, string title) = this._processCache[index];
+				(int?[] orders, string title) = this._processCache[index];
 				removedProcesses.Add(new ProcessInfo(index, title));
 				this._processCache.Remove(index);
 			}

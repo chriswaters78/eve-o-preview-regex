@@ -1,0 +1,306 @@
+// =============================================================================
+//  EVE-O Preview - annotated sample configuration (regex cycling)
+// =============================================================================
+//  Copy this file next to "EVE-O Preview.exe" as "EVE-O Preview.json".
+//
+//  IMPORTANT: the application REWRITES this file when it closes, and the
+//  comments below are lost when it does. Keep this annotated copy somewhere
+//  safe and treat the live "EVE-O Preview.json" as generated output.
+//
+//  Edit the configuration only while EVE-O Preview is closed, otherwise your
+//  changes are overwritten on exit.
+//
+//  The example assumes a six account setup on two monitors:
+//    - primary   2560x1440 at (0, 0)
+//    - secondary 1920x1080 to its right, at (2560, 0)
+// =============================================================================
+{
+  // Reserved for future config migrations. Leave it alone.
+  "ConfigVersion": 1,
+
+  // ---------------------------------------------------------------------------
+  // CYCLE GROUP 1 - the full fleet cycle
+  // ---------------------------------------------------------------------------
+  // Hotkeys are Windows-wide. Names come from System.Windows.Forms.Keys and may
+  // carry the modifiers Control, Alt and Shift, combined with '+':
+  //   "Multiply", "NumPad9", "Control+Add", "Control+Shift+F4"
+  // An unknown key name throws on startup.
+  //
+  // The four keys used here sit in one block in the top right of the numeric
+  // keypad, so both cycles are on the same hand without any modifier:
+  //
+  //        *  -        group 1 (the whole fleet)
+  //        9  +        group 2 (support only)
+  //
+  // The left key of each pair steps forwards, the right key steps back. Swap
+  // the two lists over if you would rather have it the other way round.
+  //
+  // Every key listed for one direction does the same thing, so registering
+  // both "Multiply" and "Control+Multiply" keeps the cycle working while you
+  // are Control+clicking to lock targets.
+  //
+  // To disable a cycle, set the list to [] - NEVER to null, which crashes
+  // during start-up. Deleting the entry entirely just regenerates the defaults.
+  "CycleGroup1ForwardHotkeys": [
+    "Multiply",
+    "Control+Multiply"
+  ],
+  "CycleGroup1BackwardHotkeys": [
+    "Subtract",
+    "Control+Subtract"
+  ],
+
+  // Which clients take part in the cycle, and in which order.
+  //
+  //   "<.NET regular expression>": <order number>
+  //
+  // The pattern is matched against the EVE window title, which is
+  // "EVE - <character name>" once the character has logged in. Rules:
+  //
+  //   * The match is a SUBSTRING match (Regex.IsMatch), so anchor with ^ and $
+  //     unless you actually want a loose match.
+  //   * Backslashes must be escaped for JSON: a word boundary is written
+  //     "\\b", not "\b". Bare "\b" is JSON's backspace escape and silently
+  //     produces a pattern that can never match.
+  //   * A title matching two DIFFERENT order numbers throws an exception, so
+  //     keep the patterns mutually exclusive.
+  //   * Several patterns MAY share one order number - useful when you fly one
+  //     of several alts in that slot. Just never log two of them in at once,
+  //     or the cycle will stall on the duplicated slot.
+  //   * A logged-in client matching nothing is skipped; it never becomes
+  //     active through this cycle. A client that is in the list but offline is
+  //     skipped too, so the cycle closes up over whoever is missing.
+  //   * The login screen window is titled plain "EVE", so patterns beginning
+  //     "^EVE - " can never grab a client that has not logged in yet.
+  //   * The order is resolved ONCE, when the client is first seen with that
+  //     title, and then cached. Renaming a character mid-session, or editing
+  //     this file while the app runs, has no effect until you restart.
+  //
+  // The order number is also the screen slot - see OrderPosition below.
+  "CycleGroup1ClientsOrder": {
+    // Plain anchored match - the same behaviour as the pre-regex versions.
+    // "EVE - Main Toon Alt" would NOT match, because of the trailing $.
+    "^EVE - Main Toon$": 1,
+
+    // Alternation: whichever booster is logged in takes slot 2.
+    "^EVE - (Booster Toon|Backup Booster)$": 2,
+
+    // "\\b" is a word boundary, so "EVE - DPS 1 Vexor" matches slot 3 while
+    // "EVE - DPS 10 Vexor" does not. Without it, "^EVE - DPS 1" would claim
+    // both and the two clients would fight over the same slot.
+    "^EVE - DPS 1\\b": 3,
+    "^EVE - DPS 2\\b": 4,
+
+    // No trailing anchor: matches every character named "Scout ...".
+    "^EVE - Scout": 5,
+
+    // "(?i)" makes the rest of the pattern case-insensitive.
+    "(?i)^eve - hauler\\b": 6
+  },
+
+  // ---------------------------------------------------------------------------
+  // CYCLE GROUP 2 - a second, independent cycle over a subset of the fleet
+  // ---------------------------------------------------------------------------
+  // Group 2 works exactly like group 1 and is matched independently, so a
+  // client can be in one group, both, or neither. Here the combat characters
+  // are left out: numpad 9/+ walks only the support alts, while numpad */-
+  // still walks the whole fleet.
+  //
+  // KEEP THE NUMBERS CONSISTENT BETWEEN GROUPS. Both groups look their window
+  // geometry up in the single shared OrderPosition map below, so a client
+  // listed as 5 in group 1 and 2 in group 2 would be dropped in a different
+  // place depending on which hotkey you pressed. Reusing the group 1 numbers,
+  // as below, keeps every client in one fixed slot.
+  //
+  // NumPad9 is the one key here that needs Num Lock ON. With Num Lock off that
+  // key reports itself as Page Up instead and the hotkey never fires. The
+  // *, - and + keys work either way.
+  "CycleGroup2ForwardHotkeys": [
+    "NumPad9",
+    "Control+NumPad9"
+  ],
+  "CycleGroup2BackwardHotkeys": [
+    "Add",
+    "Control+Add"
+  ],
+  "CycleGroup2ClientsOrder": {
+    "^EVE - (Booster Toon|Backup Booster)$": 2,
+    "^EVE - Scout": 5,
+    "(?i)^eve - hauler\\b": 6
+  },
+
+  // ---------------------------------------------------------------------------
+  // ORDERPOSITION - where each slot's GAME window is put on screen
+  // ---------------------------------------------------------------------------
+  //   "<order number>": [ left, top, width, height ]
+  //
+  // These are the EVE client windows themselves, not the thumbnails (for those
+  // see FlatLayout at the bottom of the file). The numbers are screen
+  // coordinates in pixels, and on a multi-monitor desktop they continue across
+  // monitors - hence x values above 2560 for the second screen.
+  //
+  // How the code uses it, step by step, on every press of a cycle hotkey:
+  //
+  //   1. It looks up the slot of the currently active client in the group that
+  //      owns the hotkey. If the active client is not in that group, nothing
+  //      happens at all.
+  //   2. It walks to the next higher slot (or lower, when cycling backwards)
+  //      that is currently logged in, wrapping around at the ends.
+  //   3. The target client is activated, and then moved: if its window's
+  //      current left/top does not match the slot, MoveWindow puts it at
+  //      exactly [left, top, width, height]. Only the top-left corner is
+  //      compared, so a window that is in the right place but the wrong size
+  //      is left alone.
+  //   4. WRAPPING AROUND RESTACKS EVERYTHING. When the cycle rolls over from
+  //      the last slot back to the first, the app first re-activates every
+  //      other client in the group in reverse slot order, moving each one to
+  //      its own slot as it goes, with a 30 ms pause between them, and only
+  //      then activates the target. The whole stack is rebuilt bottom-up so
+  //      the window z-order matches the cycle order again, which is what stops
+  //      a wrapped cycle from surfacing the wrong client. Expect the screen to
+  //      flicker through the other clients for a moment on that one press.
+  //
+  // Every order number used by EITHER cycle group should appear here. A slot
+  // with no entry still cycles - the client is activated but its window is
+  // left wherever it happens to be.
+  //
+  // Notes:
+  //   * The EVE client must be in Windowed or Fixed Window mode. A client in
+  //     exclusive Fullscreen ignores being moved, or fights back.
+  //   * width/height include the window border, so a 2560 wide window on a
+  //     2560 monitor loses a few pixels off each edge.
+  //   * Slots that share one rectangle - 1 to 4 below - mean "whichever combat
+  //     client is active takes over the main screen", which is the usual
+  //     multiboxing arrangement.
+  "OrderPosition": {
+    "1": [ 0, 0, 2560, 1400 ],
+    "2": [ 0, 0, 2560, 1400 ],
+    "3": [ 0, 0, 2560, 1400 ],
+    "4": [ 0, 0, 2560, 1400 ],
+    "5": [ 2560, 0, 960, 540 ],
+    "6": [ 3520, 0, 960, 540 ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // Per-client highlight colours
+  // ---------------------------------------------------------------------------
+  // Border colour of the thumbnail belonging to the active client, overriding
+  // ActiveClientHighlightColor for the clients listed.
+  //
+  // NOTE: unlike the cycle groups, these keys are EXACT window titles - they
+  // are compared with a plain string equality, not as regular expressions.
+  // Clients not listed fall back to ActiveClientHighlightColor.
+  // Values are .NET colour names ("Red", "DeepSkyBlue", ...).
+  "PerClientActiveClientHighlightColor": {
+    "EVE - Main Toon": "Red",
+    "EVE - Scout Rifter": "DeepSkyBlue"
+  },
+
+  // ---------------------------------------------------------------------------
+  // General options
+  // ---------------------------------------------------------------------------
+  "MinimizeToTray": false,
+  // Thumbnail refresh interval in ms. Clamped to 300...1000.
+  "ThumbnailRefreshPeriod": 500,
+  // Alternative render mode, for setups where thumbnails stay black.
+  "CompatibilityMode": false,
+  // Thumbnail opacity, 0.2...1.0.
+  "ThumbnailsOpacity": 0.5,
+  // Remembers each client's own window size/position in ClientLayout below.
+  // Leave it off when you drive window geometry from OrderPosition instead -
+  // the two will otherwise argue over where a window belongs.
+  "EnableClientLayoutTracking": false,
+  // Hides the thumbnail of whichever client is currently active.
+  "HideActiveClientThumbnail": true,
+  // Best left off while cycling: a minimized client cannot be restacked.
+  "MinimizeInactiveClients": false,
+  "ShowThumbnailsAlwaysOnTop": true,
+  // When true, thumbnail positions are stored per active client in
+  // PerClientLayout instead of in the single flat FlatLayout map.
+  "EnablePerClientThumbnailLayouts": false,
+  "HideThumbnailsOnLostFocus": false,
+  // Measured in refresh periods, so 2 x 500 ms = 1 second.
+  "HideThumbnailsDelay": 2,
+
+  // Thumbnail size, as "width, height". Clamped to the two limits below.
+  "ThumbnailSize": "384, 216",
+  "ThumbnailMaximumSize": "960, 540",
+  "ThumbnailMinimumSize": "192, 108",
+  "EnableThumbnailSnap": true,
+  "EnableThumbnailZoom": false,
+  // Zoom multiplier, 2...10.
+  "ThumbnailZoomFactor": 2,
+  // Corner the zoom expands from: 0=NW 1=N 2=NE 3=W 4=C 5=E 6=SW 7=S 8=SE.
+  "ThumbnailZoomAnchor": 0,
+  "ShowThumbnailOverlays": true,
+  "ShowThumbnailFrames": false,
+
+  // Border drawn around the active client's thumbnail. Worth keeping on while
+  // cycling, as it is the clearest indication of where the cycle has landed.
+  "EnableActiveClientHighlight": true,
+  "ActiveClientHighlightColor": "GreenYellow",
+  // Border thickness, 1...6.
+  "ActiveClientHighlightThickness": 3,
+
+  // Where the thumbnail of a client still sitting on the login screen goes.
+  // Those windows are titled plain "EVE", so they match no layout entry of
+  // their own and would otherwise pile up on top of each other.
+  "LoginThumbnailLocation": "5, 5",
+
+  // ---------------------------------------------------------------------------
+  // Thumbnail layouts
+  // ---------------------------------------------------------------------------
+  // Per-active-client thumbnail layouts: "<active client>": { "<thumbnail
+  // owner>": "x, y" }. Only consulted while EnablePerClientThumbnailLayouts is
+  // true, and cleared by the app whenever that option is false.
+  "PerClientLayout": {},
+
+  // FLATLAYOUT - where each client's THUMBNAIL sits on screen.
+  //
+  //   "<exact window title>": "x, y"
+  //
+  // This is the single, shared thumbnail layout used whenever
+  // EnablePerClientThumbnailLayouts is false, i.e. the normal case. It is the
+  // preview window's top-left corner in screen coordinates; the preview's size
+  // comes from ThumbnailSize, so only a position is stored here.
+  //
+  //   * Keys are EXACT window titles, not regular expressions - this map is
+  //     looked up with a straight dictionary lookup, so "EVE - Scout Rifter"
+  //     has to be spelled exactly as the window title reads. A client with no
+  //     entry keeps wherever its thumbnail last ended up.
+  //   * The app MAINTAINS this map itself: drag a thumbnail somewhere and the
+  //     new position is written back here when EVE-O Preview closes. Editing
+  //     it by hand is only worth it to line previews up precisely, or to copy
+  //     a layout between machines.
+  //   * Positions are re-applied on every refresh, so a thumbnail that is
+  //     nudged by something else snaps back.
+  //   * These are the small preview windows only. The game windows are placed
+  //     by OrderPosition above, and the two are completely independent.
+  //
+  // Below: two rows of previews across the lower half of the second monitor,
+  // clear of the scout and hauler game windows sitting along its top edge.
+  "FlatLayout": {
+    "EVE - Main Toon": "2570, 600",
+    "EVE - Booster Toon": "2960, 600",
+    "EVE - DPS 1 Vexor": "3350, 600",
+    "EVE - DPS 2 Vexor": "2570, 830",
+    "EVE - Scout Rifter": "2960, 830",
+    "EVE - Hauler Alt": "3350, 830"
+  },
+
+  // Written by the app when EnableClientLayoutTracking is on: the size and
+  // position of each EVE client window itself, as
+  // "<title>": { "X": .., "Y": .., "Width": .., "Height": .., "IsMaximized": false }
+  "ClientLayout": {},
+
+  // Jump straight to one client. Exact titles again, one key each:
+  //   "EVE - Main Toon": "F1"
+  "ClientHotkey": {},
+
+  // Suppress the thumbnail for individual clients: "<exact title>": true.
+  "DisableThumbnail": {},
+
+  // Exact titles that are never auto-minimized when MinimizeInactiveClients
+  // is on.
+  "PriorityClients": []
+}

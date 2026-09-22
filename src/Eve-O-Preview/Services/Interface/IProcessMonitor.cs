@@ -8,8 +8,9 @@ namespace EveOPreview.Services
 		IProcessInfo GetMainProcess();
 		ICollection<IProcessInfo> GetAllProcesses();
 		void GetUpdatedProcesses(out ICollection<IProcessInfo> addedProcesses, out ICollection<IProcessInfo> updatedProcesses, out ICollection<IProcessInfo> removedProcesses);
-		int? GetProcessOrder(IntPtr processHandle);
-        List<(int, IntPtr)> GetKnownProcessOrders(bool reverse);
+		// Cycle groups are numbered starting from 1
+		int? GetProcessOrder(IntPtr processHandle, int cycleGroup);
+        List<(int Order, IntPtr Handle)> GetKnownProcessOrders(int cycleGroup, bool reverse);
 
 
     }

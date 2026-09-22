@@ -78,11 +78,11 @@ namespace EveOPreview.Services
 
 			this._hideThumbnailsDelay = this._configuration.HideThumbnailsDelay;
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup1ClientsOrder, this._configuration.OrderPosition);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup1ClientsOrder, this._configuration.OrderPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, 1);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup1BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, 1);
 
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, this._configuration.CycleGroup2ClientsOrder, this._configuration.OrderPosition);
-			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, this._configuration.CycleGroup2ClientsOrder, this._configuration.OrderPosition);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2ForwardHotkeys?.Select(x => this._configuration.StringToKey(x)), true, 2);
+			RegisterCycleClientHotkey(this._configuration.CycleGroup2BackwardHotkeys?.Select(x => this._configuration.StringToKey(x)), false, 2);
 		}
 
 		public IThumbnailView GetClientByTitle(string title)
@@ -114,19 +114,20 @@ namespace EveOPreview.Services
             view.SetHighlight();
             view.Refresh(true);
         }
-        public void CycleNextClient(bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<int, List<int>> clientPosition)
+        public void CycleNextClient(bool isForwards, int cycleGroup)
 		{
-			//find the current order
-			var currentOrder = this._processMonitor.GetProcessOrder(_activeClient.Handle);
+			//find the current order within this cycle group
+			var currentOrder = this._processMonitor.GetProcessOrder(_activeClient.Handle, cycleGroup);
 			if (!currentOrder.HasValue) 
 			{ 
+				//the active client does not take part in this cycle group
 				return; 
 			}
 
-			var processOrders = this._processMonitor.GetKnownProcessOrders(!isForwards);
-            var nextOrders = processOrders.SkipWhile(order => order.Item1 != currentOrder).ToList();
+			var processOrders = this._processMonitor.GetKnownProcessOrders(cycleGroup, !isForwards);
+            var nextOrders = processOrders.SkipWhile(order => order.Order != currentOrder).ToList();
 
-			(int, IntPtr) nextOrder;
+			(int Order, IntPtr Handle) nextOrder;
 			if (nextOrders.Count > 1)
 			{
 				nextOrder = nextOrders.Skip(1).First();
@@ -137,9 +138,18 @@ namespace EveOPreview.Services
 				nextOrder = processOrders.First();
 			}
 
+			//Window positions are shared by all the cycle groups - the order number a client
+			//is given is the screen slot its window is moved to once it becomes active
 			Action<int, IntPtr> setWindowPosition = (int order, IntPtr ptr) =>
 			{
-				var position = clientPosition[order];
+				if ((this._configuration.OrderPosition == null)
+					|| !this._configuration.OrderPosition.TryGetValue(order, out List<int> position)
+					|| (position.Count < 4))
+				{
+					//no slot is defined for this order so the window is left where it is
+					return;
+				}
+
 				(int left, int top, int right, int bottom) = this._windowManager.GetWindowPosition(ptr);
 				if (position[0] != left || position[1] != top)
 				{
@@ -149,38 +159,50 @@ namespace EveOPreview.Services
 			};
             
 			//we know which we are going to next
-			bool wrapAroundStack = nextOrder.Item1 < currentOrder.Value && isForwards || nextOrder.Item1 > currentOrder.Value && !isForwards;
-			List<int> stackOrder = new List<int>();
+			bool wrapAroundStack = nextOrder.Order < currentOrder.Value && isForwards || nextOrder.Order > currentOrder.Value && !isForwards;
 			if (wrapAroundStack)
 			{
-				var loadedToStack = processOrders.Where(co => co.Item1 != nextOrder.Item1).ToList();
+				var loadedToStack = processOrders.Where(co => co.Order != nextOrder.Order).ToList();
                 loadedToStack.Reverse();
 				foreach (var co in loadedToStack)
 				{
-                    SetActive(co.Item2, _thumbnailViews[co.Item2]);
-                    setWindowPosition(co.Item1, co.Item2);
+					if (!this._thumbnailViews.TryGetValue(co.Handle, out IThumbnailView stackedView))
+					{
+						continue;
+					}
+
+                    SetActive(co.Handle, stackedView);
+                    setWindowPosition(co.Order, co.Handle);
 					//if we go too fast we skip making some of them active
 					Thread.Sleep(30);
                 }
             }
 
-            SetActive(nextOrder.Item2, _thumbnailViews[nextOrder.Item2]);
-            setWindowPosition(nextOrder.Item1, nextOrder.Item2);
+			if (this._thumbnailViews.TryGetValue(nextOrder.Handle, out IThumbnailView nextView))
+			{
+                SetActive(nextOrder.Handle, nextView);
+                setWindowPosition(nextOrder.Order, nextOrder.Handle);
+			}
 		}
 
-		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, Dictionary<string, int> cycleOrder, Dictionary<int, List<int>> positions)
+		public void RegisterCycleClientHotkey(IEnumerable<Keys> keys, bool isForwards, int cycleGroup)
 		{
+			if (keys == null)
+			{
+				return;
+			}
+
 			foreach (var hotkey in keys)
 			{
 				if (hotkey == Keys.None)
 				{
-					return;
+					continue;
 				}
 
 				var newHandler = new HotkeyHandler(default(IntPtr), hotkey);
 				newHandler.Pressed += (object s, HandledEventArgs e) =>
 				{
-					this.CycleNextClient(isForwards, cycleOrder, positions);
+					this.CycleNextClient(isForwards, cycleGroup);
 					e.Handled = true;
 				};
 
