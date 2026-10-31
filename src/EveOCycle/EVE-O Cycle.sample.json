@@ -1,0 +1,152 @@
+// =============================================================================
+//  EVE-O Cycle - configuration
+// =============================================================================
+//  This file is the whole of the application's interface. There is no window and
+//  no settings screen: edit this, restart, and that is the application.
+//
+//  Comments like these are allowed and are kept - EVE-O Cycle only ever reads
+//  this file, it never writes it back.
+//
+//  Run "EVE-O Cycle --list" while your clients are logged in to see the exact
+//  window titles to write patterns against, and "--validate" to check an edit
+//  before relying on it.
+//
+//  The example below is a six account setup on two monitors:
+//    - primary   2560x1440 at (0, 0)
+//    - secondary 1920x1080 to its right, at (2560, 0)
+// =============================================================================
+{
+  // The process EVE Online runs as. Leave this alone unless you are testing
+  // against something else; "*" looks at every process that has a window.
+  "ProcessName": "ExeFile",
+
+  // Pause between the individual window activations of a restack, in
+  // milliseconds. Too short and Windows drops some of them.
+  "ActivationDelayMilliseconds": 30,
+
+  // Keys that put every running client window back where it belongs in one go.
+  // Handy once everybody has finished logging in. Optional.
+  "ArrangeHotkeys": [ "Divide", "Control+Divide" ],
+
+  // ---------------------------------------------------------------------------
+  // CLIENTS - one entry per character
+  // ---------------------------------------------------------------------------
+  // Each client is defined once here, and the groups below refer to it by Name.
+  // That way a character keeps the same window position and the same select key
+  // however many groups it belongs to.
+  //
+  //   "Name"    What to call it. Used by the groups and in the console output.
+  //   "Match"   A .NET regular expression matched against the window title,
+  //             which reads "EVE - <character name>" once that character has
+  //             logged in.
+  //   "Hotkey"  Key, or list of keys, that jumps straight to this client.
+  //             Optional.
+  //   "Window"  "left, top, width, height" in screen pixels, applied whenever
+  //             this client is activated. Leave it out to never move the window.
+  //
+  // About the patterns:
+  //
+  //   * The match is a SUBSTRING match, so anchor with ^ and $ unless you want
+  //     the loose match. "EVE - Main" would also match "EVE - Main Toon Alt".
+  //   * Backslashes have to be escaped for JSON: a word boundary is written
+  //     "\\b", not "\b". Bare "\b" is JSON's own escape for a backspace
+  //     character and quietly produces a pattern that can never match.
+  //   * A window that matches two clients is reported on the console and given
+  //     to the first of them, so keep the patterns mutually exclusive.
+  //   * A client that is not logged in is simply skipped by the cycle.
+  //   * A client sitting on the login screen is titled plain "EVE", so any
+  //     pattern starting with "^EVE - " ignores it until the character is in.
+  "Clients": [
+    {
+      // Anchored at both ends: exactly this character and nothing else.
+      "Name": "Main",
+      "Match": "^EVE - Main Toon$",
+      "Hotkey": "NumPad1",
+      "Window": "0, 0, 2560, 1400"
+    },
+    {
+      // Alternation: whichever booster is logged in fills this slot.
+      "Name": "Booster",
+      "Match": "^EVE - (Booster Toon|Backup Booster)$",
+      "Hotkey": "NumPad2",
+      "Window": "0, 0, 2560, 1400"
+    },
+    {
+      // "\\b" is a word boundary, so this matches "EVE - DPS 1 Vexor" but not
+      // "EVE - DPS 10 Vexor".
+      "Name": "DPS 1",
+      "Match": "^EVE - DPS 1\\b",
+      "Hotkey": "NumPad3",
+      "Window": "0, 0, 2560, 1400"
+    },
+    {
+      "Name": "DPS 2",
+      "Match": "^EVE - DPS 2\\b",
+      "Hotkey": "NumPad4",
+      "Window": "0, 0, 2560, 1400"
+    },
+    {
+      // No closing anchor: every character whose name starts with "Scout".
+      // This one gets a small window on the second monitor instead.
+      "Name": "Scout",
+      "Match": "^EVE - Scout",
+      "Hotkey": "NumPad5",
+      "Window": "2560, 0, 960, 540"
+    },
+    {
+      // "(?i)" makes the rest of the pattern case-insensitive.
+      "Name": "Hauler",
+      "Match": "(?i)^eve - hauler\\b",
+      "Hotkey": "NumPad6",
+      "Window": "3520, 0, 960, 540"
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // GROUPS - each one is a set of clients that a pair of keys steps through
+  // ---------------------------------------------------------------------------
+  //   "Name"            Used in the console output.
+  //   "Next"            Key, or list of keys, that steps forwards.
+  //   "Previous"        Key, or list of keys, that steps backwards.
+  //   "Members"         Client names, in the order they should be cycled.
+  //   "RestackOnWrap"   See below. Defaults to false.
+  //
+  // Pressing a cycle key activates the next member that is actually running,
+  // skipping over anyone who is not logged in, and wraps around at the ends.
+  // It starts from whichever member is in front at the time; if you are looking
+  // at something else entirely - a browser, say - it carries on from wherever
+  // that group was left.
+  //
+  // RestackOnWrap only matters when the clients in a group sit on top of each
+  // other. On the press that wraps the cycle round, every other member is
+  // brought forward in turn so the windows end up stacked in cycle order again
+  // behind the one you land on. It makes that one press flicker through the
+  // other clients, so leave it off for groups whose windows do not overlap.
+  //
+  // The keys below sit in one block in the top right of the numeric keypad:
+  //
+  //        /  *  -       / arranges, * and - cycle the fleet
+  //           9  +       9 and + cycle the support alts
+  //
+  // Note that the keypad DIGITS - NumPad1 to NumPad9 - only work while Num Lock
+  // is on. With it off they report themselves as Home, Page Up and so on. The
+  // /, *, - and + keys work either way.
+  "Groups": [
+    {
+      "Name": "Fleet",
+      "Next": [ "Multiply", "Control+Multiply" ],
+      "Previous": [ "Subtract", "Control+Subtract" ],
+      "Members": [ "Main", "Booster", "DPS 1", "DPS 2", "Scout", "Hauler" ],
+      // The combat clients all share one rectangle, so the stack is worth rebuilding
+      "RestackOnWrap": true
+    },
+    {
+      // A second cycle over just the support alts. The same clients, so the same
+      // windows and the same select keys - only the running order differs.
+      "Name": "Support",
+      "Next": [ "NumPad9", "Control+NumPad9" ],
+      "Previous": [ "Add", "Control+Add" ],
+      "Members": [ "Booster", "Scout", "Hauler" ]
+    }
+  ]
+}

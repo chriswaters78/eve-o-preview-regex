@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Eve-O-Mock/Eve-O-Mock.csproj" />
+  <Project Path="EveOCycle/EveOCycle.csproj" />
+</Solution>
